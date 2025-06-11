@@ -167,6 +167,17 @@
             display: none;
         }
 
+        .success {
+            background: #F0FDF4;
+            border: 1px solid #BBF7D0;
+            color: #166534;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
         .info {
             background: #F0F9FF;
             border: 1px solid #BAE6FD;
@@ -212,6 +223,17 @@
             margin-bottom: 10px;
             color: #374151;
         }
+
+        .url-info {
+            background: #FFFBEB;
+            border: 1px solid #FDE68A;
+            color: #92400E;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -229,6 +251,7 @@
 
         <div class="content">
             <div class="error" id="errorMessage"></div>
+            <div class="success" id="successMessage"></div>
             
             <div class="welcome-message" id="welcomeMessage">
                 Connecting you with this business...
@@ -250,6 +273,11 @@
                 This will initiate a voice call using Azure Communication Services
             </div>
 
+            <div class="url-info" id="urlInfo">
+                <strong>Testing URL Format:</strong><br>
+                Add ?qr_id=YOUR_QR_CODE_ID to this page's URL
+            </div>
+
             <div class="debug-info" id="debugInfo">
                 <div class="debug-title">Debug Information:</div>
                 <div id="debugContent"></div>
@@ -258,10 +286,9 @@
     </div>
 
     <script>
-        // Configuration
+        // Configuration - UPDATE THESE WITH YOUR ACTUAL VALUES
         const SUPABASE_URL = 'https://vmxkrwqyxwfxbqvojypc.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteGtyd3F5eHdmeGJxdm9qeXBjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzNjA2MjUsImV4cCI6MjA2NDkzNjYyNX0.EH0wAMQJszlW1T8tL8VYIZ3BHBf8zVbu3sDhSwZbc04';
-        
         
         // Global variables
         let qrCodeId = null;
@@ -279,19 +306,29 @@
             callButton: document.getElementById('callButton'),
             buttonText: document.getElementById('buttonText'),
             errorMessage: document.getElementById('errorMessage'),
+            successMessage: document.getElementById('successMessage'),
             loadingMessage: document.getElementById('loadingMessage'),
             debugInfo: document.getElementById('debugInfo'),
-            debugContent: document.getElementById('debugContent')
+            debugContent: document.getElementById('debugContent'),
+            urlInfo: document.getElementById('urlInfo')
         };
 
         // Utility functions
         function showError(message) {
             elements.errorMessage.textContent = message;
             elements.errorMessage.style.display = 'block';
+            elements.successMessage.style.display = 'none';
         }
 
-        function hideError() {
+        function showSuccess(message) {
+            elements.successMessage.textContent = message;
+            elements.successMessage.style.display = 'block';
             elements.errorMessage.style.display = 'none';
+        }
+
+        function hideMessages() {
+            elements.errorMessage.style.display = 'none';
+            elements.successMessage.style.display = 'none';
         }
 
         function showLoading(show = true) {
@@ -299,14 +336,16 @@
             elements.callButton.disabled = show;
         }
 
-        function updateDebugInfo(data) {
+        function updateDebugInfo() {
             elements.debugContent.innerHTML = `
                 <strong>QR Code ID:</strong> ${qrCodeId}<br>
                 <strong>Owner ACS ID:</strong> ${qrInfo?.ownerAcsUserId || 'Not loaded'}<br>
+                <strong>Owner Name:</strong> ${qrInfo?.ownerName || 'Not loaded'}<br>
                 <strong>Caller ACS ID:</strong> ${callerAcsData?.acsUserId || 'Not loaded'}<br>
                 <strong>Call ID:</strong> ${callId || 'Not generated'}<br>
                 <strong>Token Length:</strong> ${callerAcsData?.token?.length || 0} chars<br>
-                <strong>Token Expires:</strong> ${callerAcsData?.expiresOn || 'N/A'}
+                <strong>Token Expires:</strong> ${callerAcsData?.expiresOn || 'N/A'}<br>
+                <strong>Current URL:</strong> ${window.location.href}
             `;
             elements.debugInfo.classList.add('show');
         }
@@ -329,6 +368,8 @@
 
         // API functions
         async function fetchQRInfo(qrCodeId) {
+            console.log('Fetching QR info for ID:', qrCodeId);
+            
             const response = await fetch(`${SUPABASE_URL}/functions/v1/get-qr-public-info`, {
                 method: 'POST',
                 headers: {
@@ -338,15 +379,22 @@
                 body: JSON.stringify({ qr_code_id: qrCodeId })
             });
 
+            console.log('QR Info Response Status:', response.status);
+
             if (!response.ok) {
                 const error = await response.json();
+                console.error('QR Info Error:', error);
                 throw new Error(error.error || 'Failed to fetch QR information');
             }
 
-            return await response.json();
+            const data = await response.json();
+            console.log('QR Info Data:', data);
+            return data;
         }
 
         async function fetchCallerAcsToken() {
+            console.log('Fetching caller ACS token...');
+            
             const response = await fetch(`${SUPABASE_URL}/functions/v1/get-acs-token`, {
                 method: 'POST',
                 headers: {
@@ -355,23 +403,67 @@
                 }
             });
 
+            console.log('ACS Token Response Status:', response.status);
+
             if (!response.ok) {
                 const error = await response.json();
+                console.error('ACS Token Error:', error);
                 throw new Error(error.error || 'Failed to get caller token');
             }
 
-            return await response.json();
+            const data = await response.json();
+            console.log('ACS Token Data received (token length):', data.token?.length || 0);
+            return data;
+        }
+
+        async function initiateCallAndNotify() {
+            console.log('Initiating call and sending notification...');
+            
+            const response = await fetch(`${SUPABASE_URL}/functions/v1/initiate-call-and-notify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({
+                    callerAcsId: callerAcsData.acsUserId,
+                    ownerAcsId: qrInfo.ownerAcsUserId,
+                    qrCodeId: qrCodeId,
+                    callId: callId,
+                    callerName: 'Web Caller' // Could be enhanced to ask for name
+                })
+            });
+
+            console.log('Call Notification Response Status:', response.status);
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.error('Call Notification Error:', error);
+                throw new Error(error.error || 'Failed to initiate call');
+            }
+
+            const data = await response.json();
+            console.log('Call Notification Data:', data);
+            return data;
         }
 
         // Main functions
         function extractQRCodeId() {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get('qr_id');
+            // Try URL path first (e.g., /call/qr-id)
+            const path = window.location.pathname;
+            const pathMatch = path.match(/\/call\/([^\/]+)/);
+            if (pathMatch) {
+                return pathMatch[1];
+            }
+
+            // Fallback to query parameter (e.g., ?qr_id=qr-id)
+            const params = new URLSearchParams(window.location.search);
+            return params.get('qr_id');
         }
 
         async function loadQRInfo() {
             try {
-                hideError();
+                hideMessages();
                 showLoading(true);
 
                 qrInfo = await fetchQRInfo(qrCodeId);
@@ -393,12 +485,16 @@
                 elements.buttonText.textContent = `Call ${qrInfo.name}`;
                 elements.callButton.disabled = false;
 
-                console.log('QR Info loaded:', qrInfo);
+                // Hide URL info since we loaded successfully
+                elements.urlInfo.style.display = 'none';
+
+                console.log('QR Info loaded successfully:', qrInfo);
                 updateDebugInfo();
 
             } catch (error) {
                 console.error('Error loading QR info:', error);
                 showError(error.message);
+                updateDebugInfo();
             } finally {
                 showLoading(false);
             }
@@ -406,7 +502,7 @@
 
         async function initiateCall() {
             try {
-                hideError();
+                hideMessages();
                 showLoading(true);
                 elements.buttonText.textContent = 'Connecting...';
 
@@ -416,7 +512,7 @@
                 // Get caller ACS token
                 callerAcsData = await fetchCallerAcsToken();
 
-                // Log all the information for Phase 2 testing
+                // Log all the information for Phase 3 testing
                 console.log('=== CALL INITIATION DATA ===');
                 console.log('QR Code ID:', qrCodeId);
                 console.log('Owner ACS User ID:', qrInfo.ownerAcsUserId);
@@ -429,17 +525,24 @@
 
                 updateDebugInfo();
 
-                // For Phase 2, we just show success
-                elements.buttonText.textContent = 'Call Data Ready!';
-                showError('✅ Call setup complete! Check console for details.');
-                elements.errorMessage.style.background = '#F0FDF4';
-                elements.errorMessage.style.borderColor = '#BBF7D0';
-                elements.errorMessage.style.color = '#166534';
+                // Phase 3: Send notification to owner
+                const notificationResult = await initiateCallAndNotify();
+                
+                console.log('=== NOTIFICATION RESULT ===');
+                console.log('Notification sent:', notificationResult.success);
+                console.log('Owner notified:', notificationResult.ownerName);
+                console.log('Push result:', notificationResult.pushResult);
+                console.log('============================');
+
+                // Show success message
+                elements.buttonText.textContent = 'Call Initiated!';
+                showSuccess(`✅ Call initiated! ${notificationResult.ownerName} has been notified.`);
 
             } catch (error) {
                 console.error('Error initiating call:', error);
                 showError(error.message);
                 elements.buttonText.textContent = `Call ${qrInfo?.name || 'Now'}`;
+                updateDebugInfo();
             } finally {
                 showLoading(false);
             }
@@ -452,14 +555,13 @@
         async function init() {
             qrCodeId = extractQRCodeId();
             
+            console.log('Initializing with QR Code ID:', qrCodeId);
+            console.log('Current URL:', window.location.href);
+            
             if (!qrCodeId) {
-                showError('Invalid QR code URL. Please scan a valid QR code.');
-                return;
-            }
-
-            // Update configuration notice
-            if (SUPABASE_URL === 'https://your-project.supabase.co') {
-                showError('⚠️ Please update SUPABASE_URL and SUPABASE_ANON_KEY in the HTML file');
+                showError('No QR code ID found in URL. Add ?qr_id=YOUR_QR_CODE_ID to test.');
+                elements.urlInfo.style.display = 'block';
+                updateDebugInfo();
                 return;
             }
 
