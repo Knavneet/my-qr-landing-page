@@ -141,6 +141,7 @@
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
+            background: #9CA3AF;
         }
 
         .call-icon {
@@ -175,6 +176,18 @@
             border-radius: 8px;
             font-size: 14px;
             margin-bottom: 20px;
+            display: none;
+        }
+
+        .offline-notice {
+            background: #FEF2F2;
+            border: 1px solid #FECACA;
+            color: #DC2626;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
             display: none;
         }
 
@@ -252,6 +265,10 @@
         <div class="content">
             <div class="error" id="errorMessage"></div>
             <div class="success" id="successMessage"></div>
+            <div class="offline-notice" id="offlineNotice">
+                <strong>📵 Currently Unavailable</strong><br>
+                This person is currently offline and cannot receive calls. Please try again later.
+            </div>
             
             <div class="welcome-message" id="welcomeMessage">
                 Connecting you with this business...
@@ -307,6 +324,7 @@
             buttonText: document.getElementById('buttonText'),
             errorMessage: document.getElementById('errorMessage'),
             successMessage: document.getElementById('successMessage'),
+            offlineNotice: document.getElementById('offlineNotice'),
             loadingMessage: document.getElementById('loadingMessage'),
             debugInfo: document.getElementById('debugInfo'),
             debugContent: document.getElementById('debugContent'),
@@ -341,6 +359,7 @@
                 <strong>QR Code ID:</strong> ${qrCodeId}<br>
                 <strong>Owner ACS ID:</strong> ${qrInfo?.ownerAcsUserId || 'Not loaded'}<br>
                 <strong>Owner Name:</strong> ${qrInfo?.ownerName || 'Not loaded'}<br>
+                <strong>Owner Status:</strong> ${qrInfo?.status || 'Not loaded'}<br>
                 <strong>Caller ACS ID:</strong> ${callerAcsData?.acsUserId || 'Not loaded'}<br>
                 <strong>Call ID:</strong> ${callId || 'Not generated'}<br>
                 <strong>Token Length:</strong> ${callerAcsData?.token?.length || 0} chars<br>
@@ -364,6 +383,17 @@
             const statusInfo = statusMap[status] || statusMap['offline'];
             elements.statusText.textContent = statusInfo.text;
             elements.statusDot.className = `status-dot ${statusInfo.class}`;
+
+            // Show/hide offline notice and disable call button if offline
+            if (status === 'offline') {
+                elements.offlineNotice.style.display = 'block';
+                elements.callButton.disabled = true;
+                elements.buttonText.textContent = 'Currently Unavailable';
+            } else {
+                elements.offlineNotice.style.display = 'none';
+                elements.callButton.disabled = false;
+                elements.buttonText.textContent = `Call ${qrInfo?.name || 'Now'}`;
+            }
         }
 
         // API functions
@@ -481,10 +511,6 @@
                     elements.logo.textContent = qrInfo.name.charAt(0).toUpperCase();
                 }
 
-                // Enable call button
-                elements.buttonText.textContent = `Call ${qrInfo.name}`;
-                elements.callButton.disabled = false;
-
                 // Hide URL info since we loaded successfully
                 elements.urlInfo.style.display = 'none';
 
@@ -501,6 +527,12 @@
         }
 
         async function initiateCall() {
+            // Check if owner is offline
+            if (qrInfo.status === 'offline') {
+                showError('This person is currently offline and cannot receive calls.');
+                return;
+            }
+
             try {
                 hideMessages();
                 showLoading(true);
@@ -517,6 +549,7 @@
                 console.log('QR Code ID:', qrCodeId);
                 console.log('Owner ACS User ID:', qrInfo.ownerAcsUserId);
                 console.log('Owner Name:', qrInfo.ownerName);
+                console.log('Owner Status:', qrInfo.status);
                 console.log('Caller ACS User ID:', callerAcsData.acsUserId);
                 console.log('Caller Token Length:', callerAcsData.token.length);
                 console.log('Call ID:', callId);
