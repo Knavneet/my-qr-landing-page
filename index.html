@@ -124,8 +124,8 @@
         const SUPABASE_URL = 'https://vmxkrwqyxwfxbqvojypc.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteGtyd3F5eHdmeGJxdm9qeXBjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzNjA2MjUsImV4cCI6MjA2NDkzNjYyNX0.EH0wAMQJszlW1T8tL8VYIZ3BHBf8zVbu3sDhSwZbc04';
         
-
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Initialize the Supabase client using the global 'supabase' from the CDN script
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const businessNameEl = document.getElementById('businessName');
         const welcomeMessageEl = document.getElementById('welcomeMessage');
@@ -155,7 +155,7 @@
 
         async function fetchQrPublicInfo(qrId) {
             logDebug('Fetching QR public info for ID:', qrId);
-            const { data, error } = await supabase.functions.invoke('get-qr-public-info', {
+            const { data, error } = await supabaseClient.functions.invoke('get-qr-public-info', {
                 body: { qr_code_id: qrId }
             });
             if (error) {
@@ -173,7 +173,7 @@
         async function getCallerAcsToken() {
             logDebug('Fetching ACS token for web caller...');
             // This function is called by the web user, so it's an anonymous ACS identity
-            const { data, error } = await supabase.functions.invoke('get-acs-token', {
+            const { data, error } = await supabaseClient.functions.invoke('get-acs-token', {
                 method: 'POST' // Ensure POST is used if your function expects it
             });
             if (error) {
@@ -273,7 +273,7 @@
                     callerName: "Web Caller via " + (qrPublicInfo.name || "QR Code")
                 });
 
-                const { data: notifyData, error: notifyError } = await supabase.functions.invoke(
+                const { data: notifyData, error: notifyError } = await supabaseClient.functions.invoke(
                     'initiate-call-and-notify',
                     {
                         body: {
