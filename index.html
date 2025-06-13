@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connecting Call...</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Updated Azure Communication Services CDN links -->
-    <script src="https://unpkg.com/@azure/communication-common@2.3.0/dist/browser/azure-communication-common.min.js"></script>
-    <script src="https://unpkg.com/@azure/communication-calling@1.24.1/dist/browser/azure-communication-calling.min.js"></script>
+    <!-- Try alternative CDN sources for Azure Communication Services -->
+    <script src="https://cdn.jsdelivr.net/npm/@azure/communication-common@2.3.0/dist/browser/azure-communication-common.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@azure/communication-calling@1.24.1/dist/browser/azure-communication-calling.min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -183,19 +183,54 @@
         function checkSdkAvailability() {
             logDebug('Checking SDK availability...');
             
-            // Check if SDKs are available on window object
-            const hasCommon = typeof window.AzureCommunicationTokenCredential !== 'undefined';
-            const hasCalling = typeof window.CallClient !== 'undefined';
+            // Log all available properties on window to debug
+            const windowKeys = Object.keys(window).filter(key => key.toLowerCase().includes('azure') || key.toLowerCase().includes('communication') || key.toLowerCase().includes('call'));
+            logDebug('Window properties with azure/communication/call:', windowKeys);
             
-            logDebug(`AzureCommunicationTokenCredential available: ${hasCommon}`);
-            logDebug(`CallClient available: ${hasCalling}`);
+            // Check various possible global names
+            const possibleNames = [
+                'AzureCommunicationTokenCredential',
+                'CallClient',
+                'AzureCommunicationCommon',
+                'AzureCommunicationCalling'
+            ];
             
-            if (hasCommon && hasCalling) {
+            let foundObjects = {};
+            possibleNames.forEach(name => {
+                foundObjects[name] = typeof window[name] !== 'undefined';
+                logDebug(`${name} available:`, foundObjects[name]);
+            });
+            
+            // Try to find the actual constructors
+            let TokenCredential, CallClientConstructor;
+            
+            // Check if they're nested in namespace objects
+            if (window.AzureCommunicationCommon) {
+                TokenCredential = window.AzureCommunicationCommon.AzureCommunicationTokenCredential;
+                logDebug('Found TokenCredential in AzureCommunicationCommon namespace');
+            } else {
+                TokenCredential = window.AzureCommunicationTokenCredential;
+            }
+            
+            if (window.AzureCommunicationCalling) {
+                CallClientConstructor = window.AzureCommunicationCalling.CallClient;
+                logDebug('Found CallClient in AzureCommunicationCalling namespace');
+            } else {
+                CallClientConstructor = window.CallClient;
+            }
+            
+            logDebug('Final TokenCredential check:', typeof TokenCredential !== 'undefined');
+            logDebug('Final CallClient check:', typeof CallClientConstructor !== 'undefined');
+            
+            if (TokenCredential && CallClientConstructor) {
+                // Store references for later use
+                window.AzureCommunicationTokenCredential = TokenCredential;
+                window.CallClient = CallClientConstructor;
                 sdksLoaded = true;
                 updateSdkStatus('Azure Communication SDKs loaded successfully');
                 return true;
             } else {
-                updateSdkStatus('Azure Communication SDKs failed to load', true);
+                updateSdkStatus('Azure Communication SDKs failed to load - constructors not found', true);
                 return false;
             }
         }
@@ -428,15 +463,36 @@
             const qrId = params.get('qr_id');
             debugInfoDiv.style.display = 'block';
 
-            // Check SDK availability after page load
-            setTimeout(() => {
+            // Check SDK availability after page load with multiple attempts
+            let attempts = 0;
+            const maxAttempts = 5;
+            const checkInterval = 1000;
+            
+            const checkSdksRepeatedly = () => {
+                attempts++;
+                logDebug(`SDK check attempt ${attempts}/${maxAttempts}`);
+                
                 sdksLoaded = checkSdkAvailability();
-                if (!sdksLoaded) {
+                
+                if (!sdksLoaded && attempts < maxAttempts) {
+                    setTimeout(checkSdksRepeatedly, checkInterval);
+                } else if (!sdksLoaded) {
                     callButton.disabled = true;
-                    callStatusDiv.textContent = 'SDKs failed to load. Please refresh the page.';
+                    callStatusDiv.textContent = 'SDKs failed to load after multiple attempts. Please refresh the page or check your internet connection.';
                     callStatusDiv.className = 'error';
+                    
+                    // Provide fallback suggestion
+                    const fallbackMsg = document.createElement('p');
+                    fallbackMsg.innerHTML = 'Try: <br>1. Refresh the page<br>2. Check your internet connection<br>3. Disable ad blockers temporarily';
+                    fallbackMsg.style.fontSize = '12px';
+                    fallbackMsg.style.color = '#666';
+                    fallbackMsg.style.marginTop = '10px';
+                    callStatusDiv.appendChild(fallbackMsg);
                 }
-            }, 1000); // Give SDKs time to initialize
+            };
+            
+            // Start checking after a short delay
+            setTimeout(checkSdksRepeatedly, 500);
 
             if (!qrId) {
                 businessNameEl.textContent = 'Error';
@@ -468,9 +524,15 @@
                 callButton.style.backgroundColor = qrPublicInfo.brandingColor || '#007bff';
                 
                 // Only enable call button if SDKs are loaded
-                if (sdksLoaded) {
-                    callButton.disabled = false;
-                }
+                const enableButtonWhenReady = () => {
+                    if (sdksLoaded) {
+                        callButton.disabled = false;
+                    } else {
+                        // Check again in a bit
+                        setTimeout(enableButtonWhenReady, 500);
+                    }
+                };
+                enableButtonWhenReady();
 
                 logDebug('Page loaded. QR Info:', qrPublicInfo);
 
