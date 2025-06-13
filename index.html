@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connecting Call...</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Updated Azure Communication Services CDN links -->
-    <script src="https://cdn.jsdelivr.net/npm/@azure/communication-common@2.3.0/dist/browser/azure-communication-common.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@azure/communication-calling@1.24.1/dist/browser/azure-communication-calling.js"></script>
+    <!-- Fixed Azure Communication Services CDN links -->
+    <script src="https://unpkg.com/@azure/communication-common@2.3.0/dist/browser/communication-common.js"></script>
+    <script src="https://unpkg.com/@azure/communication-calling@1.24.1/dist/browser/communication-calling.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -119,6 +119,15 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+        .microphone-status {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
     </style>
 </head>
 <body>
@@ -128,6 +137,7 @@
         <p id="welcomeMessage">Please wait while we connect your call.</p>
         
         <div id="sdkStatus" class="sdk-status" style="display: none;"></div>
+        <div id="microphoneStatus" class="microphone-status" style="display: none;"></div>
         
         <button id="callButton" class="button">Call Now</button>
         <button id="endCallButton" class="button end-call" style="display: none;">End Call</button>
@@ -154,6 +164,7 @@
         const callStatusDiv = document.getElementById('callStatus');
         const debugInfoDiv = document.getElementById('debugInfo');
         const sdkStatusDiv = document.getElementById('sdkStatus');
+        const microphoneStatusDiv = document.getElementById('microphoneStatus');
 
         let qrPublicInfo = null;
         let callerAcsTokenData = null;
@@ -180,109 +191,119 @@
             sdkStatusDiv.className = `sdk-status ${isError ? 'sdk-failed' : 'sdk-loaded'}`;
         }
 
+        function updateMicrophoneStatus(message) {
+            microphoneStatusDiv.style.display = 'block';
+            microphoneStatusDiv.textContent = message;
+        }
+
         function checkSdkAvailability() {
             logDebug('Checking SDK availability...');
             
-            // Log all available properties on window to debug
-            const windowKeys = Object.keys(window).filter(key => 
-                key.toLowerCase().includes('azure') || 
-                key.toLowerCase().includes('communication') || 
-                key.toLowerCase().includes('call') ||
-                key.includes('ACS') ||
-                key.includes('Microsoft')
-            );
-            logDebug('Window properties with azure/communication/call:', windowKeys);
+            // Check for the Azure Communication Services global objects
+            let foundSDKs = false;
             
-            // Check various possible global names and paths
-            let TokenCredential, CallClientConstructor;
-            
-            // Method 1: Direct global access
-            if (window.AzureCommunicationTokenCredential && window.CallClient) {
-                TokenCredential = window.AzureCommunicationTokenCredential;
-                CallClientConstructor = window.CallClient;
-                logDebug('Found constructors as direct globals');
+            // Method 1: Check for UMD globals from unpkg
+            if (window.AzureCommunicationCommon && window.AzureCommunicationCalling) {
+                logDebug('Found UMD globals from unpkg');
+                window.AzureCommunicationTokenCredential = window.AzureCommunicationCommon.AzureCommunicationTokenCredential;
+                window.CallClient = window.AzureCommunicationCalling.CallClient;
+                foundSDKs = true;
             }
-            // Method 2: Check in Azure namespace
+            // Method 2: Check for direct global exports
+            else if (window.AzureCommunicationTokenCredential && window.CallClient) {
+                logDebug('Found direct global exports');
+                foundSDKs = true;
+            }
+            // Method 3: Check for Azure namespace
             else if (window.Azure && window.Azure.Communication) {
-                TokenCredential = window.Azure.Communication.Common?.AzureCommunicationTokenCredential;
-                CallClientConstructor = window.Azure.Communication.Calling?.CallClient;
-                logDebug('Found constructors in Azure.Communication namespace');
-            }
-            // Method 3: Check in separate namespace objects
-            else if (window.AzureCommunicationCommon && window.AzureCommunicationCalling) {
-                TokenCredential = window.AzureCommunicationCommon.AzureCommunicationTokenCredential;
-                CallClientConstructor = window.AzureCommunicationCalling.CallClient;
-                logDebug('Found constructors in separate namespace objects');
-            }
-            // Method 4: Try dynamic loading (scripts might export to different names)
-            else {
-                // Look for any exports that might be the classes we need
-                const possibleTokenCredentials = Object.keys(window).filter(key => 
-                    key.includes('Token') && key.includes('Credential')
-                );
-                const possibleCallClients = Object.keys(window).filter(key => 
-                    key.includes('Call') && key.includes('Client')
-                );
-                
-                logDebug('Possible TokenCredential names:', possibleTokenCredentials);
-                logDebug('Possible CallClient names:', possibleCallClients);
-                
-                if (possibleTokenCredentials.length > 0) {
-                    TokenCredential = window[possibleTokenCredentials[0]];
-                }
-                if (possibleCallClients.length > 0) {
-                    CallClientConstructor = window[possibleCallClients[0]];
-                }
+                logDebug('Found Azure namespace');
+                window.AzureCommunicationTokenCredential = window.Azure.Communication.Common?.AzureCommunicationTokenCredential;
+                window.CallClient = window.Azure.Communication.Calling?.CallClient;
+                foundSDKs = window.AzureCommunicationTokenCredential && window.CallClient;
             }
             
-            logDebug('Final TokenCredential type:', typeof TokenCredential);
-            logDebug('Final CallClient type:', typeof CallClientConstructor);
+            logDebug('TokenCredential available:', typeof window.AzureCommunicationTokenCredential);
+            logDebug('CallClient available:', typeof window.CallClient);
             
-            if (TokenCredential && CallClientConstructor) {
-                // Store references for later use
-                window.AzureCommunicationTokenCredential = TokenCredential;
-                window.CallClient = CallClientConstructor;
+            if (foundSDKs && window.AzureCommunicationTokenCredential && window.CallClient) {
                 sdksLoaded = true;
                 updateSdkStatus('Azure Communication SDKs loaded successfully');
                 return true;
             } else {
-                const errorDetails = `TokenCredential: ${typeof TokenCredential}, CallClient: ${typeof CallClientConstructor}`;
-                updateSdkStatus(`Azure Communication SDKs failed to load - ${errorDetails}`, true);
+                const errorDetails = `TokenCredential: ${typeof window.AzureCommunicationTokenCredential}, CallClient: ${typeof window.CallClient}`;
+                updateSdkStatus(`Azure Communication SDKs not loaded - ${errorDetails}`, true);
                 return false;
             }
         }
 
-        // Alternative SDK loading method
+        // Improved SDK loading with multiple CDN attempts
         async function loadSdksAlternative() {
             logDebug('Attempting alternative SDK loading...');
             
-            try {
-                // Try to load from alternative CDN
-                const alternativeScripts = [
-                    'https://unpkg.com/@azure/communication-common@2.3.0/dist/browser/azure-communication-common.js',
-                    'https://unpkg.com/@azure/communication-calling@1.24.1/dist/browser/azure-communication-calling.js'
-                ];
-                
-                for (const scriptUrl of alternativeScripts) {
-                    await loadScript(scriptUrl);
+            const cdnSources = [
+                {
+                    name: 'unpkg with specific files',
+                    scripts: [
+                        'https://unpkg.com/@azure/communication-common@2.3.0/dist/browser/communication-common.min.js',
+                        'https://unpkg.com/@azure/communication-calling@1.24.1/dist/browser/communication-calling.min.js'
+                    ]
+                },
+                {
+                    name: 'jsdelivr',
+                    scripts: [
+                        'https://cdn.jsdelivr.net/npm/@azure/communication-common@2.3.0/dist/browser/communication-common.min.js',
+                        'https://cdn.jsdelivr.net/npm/@azure/communication-calling@1.24.1/dist/browser/communication-calling.min.js'
+                    ]
+                },
+                {
+                    name: 'unpkg alternative path',
+                    scripts: [
+                        'https://unpkg.com/@azure/communication-common@2.3.0/dist/index.browser.js',
+                        'https://unpkg.com/@azure/communication-calling@1.24.1/dist/index.browser.js'
+                    ]
                 }
-                
-                // Wait a bit for scripts to initialize
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                return checkSdkAvailability();
-            } catch (error) {
-                logDebug('Alternative SDK loading failed:', error);
-                return false;
+            ];
+            
+            for (const source of cdnSources) {
+                try {
+                    logDebug(`Trying ${source.name}...`);
+                    
+                    // Remove old script tags first
+                    const oldScripts = document.querySelectorAll('script[src*="azure"]');
+                    oldScripts.forEach(script => script.remove());
+                    
+                    for (const scriptUrl of source.scripts) {
+                        await loadScript(scriptUrl);
+                    }
+                    
+                    // Wait for scripts to initialize
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    if (checkSdkAvailability()) {
+                        logDebug(`Successfully loaded SDKs from ${source.name}`);
+                        return true;
+                    }
+                } catch (error) {
+                    logDebug(`Failed to load from ${source.name}:`, error.message);
+                    continue;
+                }
             }
+            
+            return false;
         }
 
         function loadScript(src) {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = src;
-                script.onload = resolve;
-                script.onerror = reject;
+                script.onload = () => {
+                    logDebug(`Successfully loaded: ${src}`);
+                    resolve();
+                };
+                script.onerror = (error) => {
+                    logDebug(`Failed to load: ${src}`, error);
+                    reject(error);
+                };
                 document.head.appendChild(script);
             });
         }
@@ -350,6 +371,16 @@
                 
                 deviceManager = await callClient.getDeviceManager(); 
                 logDebug('DeviceManager obtained.');
+                
+                // Request microphone permissions
+                try {
+                    await deviceManager.askDevicePermission({ audio: true });
+                    updateMicrophoneStatus('Microphone access granted');
+                    logDebug('Microphone permissions granted');
+                } catch (permError) {
+                    updateMicrophoneStatus('Microphone access denied - call may not work properly');
+                    logDebug('Microphone permission error:', permError);
+                }
                 
                 callStatusDiv.textContent = 'Ready to call.';
                 callStatusDiv.className = '';
@@ -449,8 +480,7 @@
 
                 logDebug(`Starting ACS call to ${qrPublicInfo.ownerAcsUserId} with callId ${generatedCallId}`);
                 const callOptions = {
-                    audioOptions: { muted: false },
-                    callId: generatedCallId
+                    audioOptions: { muted: false }
                 };
                 
                 activeCall = callAgent.startCall(
@@ -466,12 +496,25 @@
                 // Handle call state changes
                 activeCall.on('stateChanged', () => {
                     logDebug(`Call state changed: ${activeCall.state}`);
-                    callStatusDiv.textContent = `Call state: ${activeCall.state}`;
+                    const stateMessages = {
+                        'None': 'Initializing...',
+                        'Connecting': 'Connecting...',
+                        'Ringing': 'Ringing...',
+                        'Connected': 'Connected! You can now talk.',
+                        'LocalHold': 'Call on hold',
+                        'RemoteHold': 'Call on hold by other party',
+                        'InLobby': 'In lobby...',
+                        'Disconnecting': 'Disconnecting...',
+                        'Disconnected': 'Call ended'
+                    };
+                    
+                    const message = stateMessages[activeCall.state] || `Call state: ${activeCall.state}`;
+                    callStatusDiv.textContent = message;
+                    
                     if (activeCall.state === 'Connected') {
-                        callStatusDiv.textContent = 'Connected!';
-                    }
-                    if (activeCall.state === 'Disconnected') {
-                        callStatusDiv.textContent = 'Call Disconnected.';
+                        callStatusDiv.className = '';
+                    } else if (activeCall.state === 'Disconnected') {
+                        callStatusDiv.className = '';
                         endCallButton.style.display = 'none';
                         callButton.style.display = 'block';
                         callButton.disabled = false;
@@ -481,6 +524,17 @@
 
                 activeCall.on('idChanged', () => {
                     logDebug(`Call ID changed: ${activeCall.id}`);
+                });
+
+                // Handle remote participants
+                activeCall.on('remoteParticipantsUpdated', (e) => {
+                    logDebug('Remote participants updated:', e);
+                    e.added.forEach(participant => {
+                        logDebug('Participant added:', participant.identifier);
+                    });
+                    e.removed.forEach(participant => {
+                        logDebug('Participant removed:', participant.identifier);
+                    });
                 });
 
             } catch (error) {
@@ -496,11 +550,13 @@
             if (activeCall) {
                 try {
                     logDebug('Ending call...');
-                    await activeCall.hangUp({ forEveryone: true });
+                    await activeCall.hangUp({ forEveryone: false });
+                    callStatusDiv.textContent = 'Call ended.';
                 } catch (error) {
                     logDebug('Error ending call:', error);
                     callStatusDiv.textContent = `Error ending call: ${error.message || error}`;
                     callStatusDiv.className = 'error';
+                } finally {
                     endCallButton.style.display = 'none';
                     callButton.style.display = 'block';
                     callButton.disabled = false;
@@ -517,8 +573,8 @@
 
             // Check SDK availability after page load with multiple attempts
             let attempts = 0;
-            const maxAttempts = 5;
-            const checkInterval = 1000;
+            const maxAttempts = 3;
+            const checkInterval = 2000; // Increased interval
             
             const checkSdksRepeatedly = async () => {
                 attempts++;
@@ -528,29 +584,36 @@
                 
                 if (!sdksLoaded && attempts < maxAttempts) {
                     setTimeout(checkSdksRepeatedly, checkInterval);
-                } else if (!sdksLoaded && attempts === maxAttempts) {
+                } else if (!sdksLoaded) {
                     // Try alternative loading method
-                    logDebug('Trying alternative SDK loading...');
+                    logDebug('Trying alternative SDK loading methods...');
                     sdksLoaded = await loadSdksAlternative();
                     
                     if (!sdksLoaded) {
                         callButton.disabled = true;
-                        callStatusDiv.textContent = 'SDKs failed to load after multiple attempts. Please refresh the page or check your internet connection.';
+                        callStatusDiv.textContent = 'SDKs failed to load. This may be due to network issues or browser restrictions.';
                         callStatusDiv.className = 'error';
                         
-                        // Provide fallback suggestion
-                        const fallbackMsg = document.createElement('p');
-                        fallbackMsg.innerHTML = 'Try: <br>1. Refresh the page<br>2. Check your internet connection<br>3. Disable ad blockers temporarily<br>4. Try a different browser';
-                        fallbackMsg.style.fontSize = '12px';
-                        fallbackMsg.style.color = '#666';
-                        fallbackMsg.style.marginTop = '10px';
+                        // Provide detailed fallback suggestions
+                        const fallbackMsg = document.createElement('div');
+                        fallbackMsg.innerHTML = `
+                            <p style="margin-top: 15px; font-size: 12px; color: #666;">
+                                <strong>Troubleshooting steps:</strong><br>
+                                1. Refresh the page and try again<br>
+                                2. Check your internet connection<br>
+                                3. Disable ad blockers or tracking protection<br>
+                                4. Try a different browser (Chrome, Edge, Firefox)<br>
+                                5. Clear browser cache and cookies<br>
+                                6. Check if browser extensions are blocking scripts
+                            </p>
+                        `;
                         callStatusDiv.appendChild(fallbackMsg);
                     }
                 }
             };
             
-            // Start checking after a short delay to allow scripts to load
-            setTimeout(checkSdksRepeatedly, 1000);
+            // Start checking after a longer delay to allow scripts to fully load
+            setTimeout(checkSdksRepeatedly, 3000);
 
             if (!qrId) {
                 businessNameEl.textContent = 'Error';
@@ -578,16 +641,28 @@
                     businessLogoEl.src = qrPublicInfo.logoUrl;
                     businessLogoEl.style.display = 'block';
                 }
-                document.body.style.setProperty('--theme-color', qrPublicInfo.brandingColor || '#007bff');
-                callButton.style.backgroundColor = qrPublicInfo.brandingColor || '#007bff';
+                
+                // Apply branding color
+                const brandingColor = qrPublicInfo.brandingColor || '#007bff';
+                callButton.style.backgroundColor = brandingColor;
+                
+                // Update CSS custom property for hover states
+                const style = document.createElement('style');
+                style.textContent = `
+                    .button:hover {
+                        background-color: ${brandingColor}dd !important;
+                    }
+                `;
+                document.head.appendChild(style);
                 
                 // Only enable call button if SDKs are loaded
                 const enableButtonWhenReady = () => {
                     if (sdksLoaded) {
                         callButton.disabled = false;
+                        callButton.textContent = 'Call Now';
                     } else {
                         // Check again in a bit
-                        setTimeout(enableButtonWhenReady, 500);
+                        setTimeout(enableButtonWhenReady, 1000);
                     }
                 };
                 enableButtonWhenReady();
