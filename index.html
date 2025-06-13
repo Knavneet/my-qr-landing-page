@@ -198,15 +198,24 @@
                 return false;
             }
             try {
+                // Check if SDKs are loaded
+                if (typeof window.AzureCommunicationCalling === 'undefined' || typeof window.AzureCommunicationCommon === 'undefined') {
+                    const sdkErrorMessage = 'Error: Azure Communication SDKs not loaded. Please check your internet connection and refresh.';
+                    callStatusDiv.textContent = sdkErrorMessage;
+                    callStatusDiv.className = 'error';
+                    logDebug(sdkErrorMessage);
+                    return false;
+                }
+
                 logDebug('Initializing ACS CallClient...');
-                callClient = new AzureCommunicationCalling.CallClient();
-                const tokenCredential = new AzureCommunicationCommon.AzureCommunicationTokenCredential(callerAcsTokenData.token);
+                callClient = new window.AzureCommunicationCalling.CallClient();
+                const tokenCredential = new window.AzureCommunicationCommon.AzureCommunicationTokenCredential(callerAcsTokenData.token);
                 
                 logDebug('Creating CallAgent...');
                 callAgent = await callClient.createCallAgent(tokenCredential, { displayName: 'Web Caller' });
                 logDebug('CallAgent created.');
                 
-                deviceManager = await callClient.getDeviceManager();
+                deviceManager = await callClient.getDeviceManager(); 
                 logDebug('DeviceManager obtained.');
 
                 // Optional: Ask for microphone permissions early
